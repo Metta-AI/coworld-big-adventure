@@ -805,8 +805,7 @@ proc writeScoresIfNeeded(
       uri,
       path,
       "application/json",
-      CogameResultsUriEnv,
-      cogameHttpMethodForUri(uri, CogameResultsMethodEnv)
+      CogameResultsUriEnv
     )
   lastRevision = sim.scoreRevision
 
@@ -877,8 +876,7 @@ proc runServerLoop*(
         saveReplayUri,
         saveReplayPath,
         "application/octet-stream",
-        CogameSaveReplayUriEnv,
-        cogameHttpMethodForUri(saveReplayUri, CogameSaveReplayMethodEnv)
+        CogameSaveReplayUriEnv
       )
   appState.replayLoaded = replayLoaded
 
