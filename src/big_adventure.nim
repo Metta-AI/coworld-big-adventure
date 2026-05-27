@@ -226,8 +226,8 @@ proc echoStartupPaths(config: RunConfig) =
 when isMainModule:
   var
     config = RunConfig(
-      address: DefaultHost,
-      port: DefaultPort,
+      address: cogameHost(DefaultHost),
+      port: cogamePort(DefaultPort),
       seed: 0xB1770,
       maxTicks: DefaultMaxTicks,
       maxGames: DefaultMaxGames,
