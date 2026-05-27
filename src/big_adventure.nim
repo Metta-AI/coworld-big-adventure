@@ -1,5 +1,5 @@
-import std/[json, parseopt, strutils]
-import bitworld/cogame_runtime
+import std/[json, os, parseopt, strutils]
+import bitworld/runtime
 import jsony
 import bitworld/protocol, big_adventure/server
 
@@ -65,7 +65,7 @@ proc readConfigInt(node: JsonNode, name: string, value: var int) =
 
 proc defaultReplayPath(): string =
   ## Returns the configured replay save path from the environment.
-  pathFromCogameEnv(CogameSaveReplayUriEnv)
+  outputPathFromCogameEnv(CogameSaveReplayUriEnv, "replay.bitreplay")
 
 proc defaultLoadReplayPath(): string =
   ## Returns the configured replay load path from the environment.
@@ -73,7 +73,7 @@ proc defaultLoadReplayPath(): string =
 
 proc defaultScoresPath(): string =
   ## Returns the configured score save path from the environment.
-  pathFromCogameEnv(CogameResultsUriEnv)
+  outputPathFromCogameEnv(CogameResultsUriEnv, "scores.json")
 
 proc isKnownConfigField(name: string): bool =
   ## Returns true when a JSON config field is supported.
@@ -296,6 +296,8 @@ when isMainModule:
     config.saveReplayPath,
     config.loadReplayPath,
     config.saveScoresPath,
+    getEnv(CogameSaveReplayUriEnv),
+    getEnv(CogameResultsUriEnv),
     config.tokens,
     config.maxTicks,
     config.maxGames,

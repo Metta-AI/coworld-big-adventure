@@ -3,7 +3,7 @@ import
   mummy,
   bitworld/client,
   fluffy/measure,
-  bitworld/protocol, sim, global
+  bitworld/protocol, bitworld/runtime, sim, global
 
 const
   HealthzPath = "/healthz"
@@ -791,7 +791,8 @@ proc writeScoreFile(sim: SimServer, path: string) =
 proc writeScoresIfNeeded(
   sim: SimServer,
   path: string,
-  lastRevision: var int
+  lastRevision: var int,
+  uri = ""
 ) =
   ## Writes scores when score-visible state changed.
   if path.len == 0:
@@ -799,6 +800,14 @@ proc writeScoresIfNeeded(
   if sim.scoreRevision == lastRevision:
     return
   sim.writeScoreFile(path)
+  if uri.len > 0:
+    writeCogameFileToUri(
+      uri,
+      path,
+      "application/json",
+      CogameResultsUriEnv,
+      cogameHttpMethodForUri(uri, CogameResultsMethodEnv)
+    )
   lastRevision = sim.scoreRevision
 
 proc dumpProfileTrace(path: string) =
@@ -818,6 +827,8 @@ proc runServerLoop*(
   saveReplayPath = "",
   loadReplayPath = "",
   saveScoresPath = "",
+  saveReplayUri = "",
+  saveScoresUri = "",
   tokens: seq[string] = @[],
   maxTicks = DefaultMaxTicks,
   maxGames = DefaultMaxGames,
@@ -861,6 +872,14 @@ proc runServerLoop*(
         ReplayPlayer()
   defer:
     replayWriter.closeReplayWriter()
+    if saveReplayUri.len > 0:
+      writeCogameFileToUri(
+        saveReplayUri,
+        saveReplayPath,
+        "application/octet-stream",
+        CogameSaveReplayUriEnv,
+        cogameHttpMethodForUri(saveReplayUri, CogameSaveReplayMethodEnv)
+      )
   appState.replayLoaded = replayLoaded
 
   let httpServer = newServer(
@@ -882,7 +901,7 @@ proc runServerLoop*(
     runTicks = 0
     gamesStarted = 1
     profileActive = profileTracePath.len > 0
-  sim.writeScoresIfNeeded(saveScoresPath, lastScoreRevision)
+  sim.writeScoresIfNeeded(saveScoresPath, lastScoreRevision, saveScoresUri)
   defer:
     if profileActive:
       profileActive = false
@@ -1036,7 +1055,11 @@ proc runServerLoop*(
           for websocket in appState.rewardViewers.keys:
             rewardViewers.add(websocket)
 
-      sim.writeScoresIfNeeded(saveScoresPath, lastScoreRevision)
+      sim.writeScoresIfNeeded(
+        saveScoresPath,
+        lastScoreRevision,
+        saveScoresUri
+      )
       let rewardPacket = sim.buildRewardPacket()
       for i in 0 ..< sockets.len:
         var nextState: PlayerViewerState
@@ -1075,7 +1098,7 @@ proc runServerLoop*(
         profileActive = false
         dumpProfileTrace(profileTracePath)
 
-    sim.writeScoresIfNeeded(saveScoresPath, lastScoreRevision)
+    sim.writeScoresIfNeeded(saveScoresPath, lastScoreRevision, saveScoresUri)
     let rewardPacket = sim.buildRewardPacket()
 
     for i in 0 ..< sockets.len:
