@@ -27,13 +27,9 @@ ENV PATH="/root/.nimby/nim/bin:$PATH"
 
 WORKDIR /workspace/cogame-big-adventure
 COPY nimby.lock .
-RUN nimby sync nimby.lock && \
-  nimby install https://github.com/Metta-AI/bitworld.git
+RUN nimby --global sync nimby.lock
 
 COPY . .
-RUN mkdir -p /workspace/bitworld-assets && \
-  cp -R bitworld/client /workspace/bitworld-assets/client
-
 RUN nim c \
   -d:release \
   --path:src \
@@ -50,7 +46,6 @@ RUN apt-get update && \
 
 WORKDIR /workspace/cogame-big-adventure
 COPY --from=build /bin/big_adventure /bin/big_adventure
-COPY --from=build /workspace/bitworld-assets/client ./client
 COPY data ./data
 COPY coworld_manifest.json .
 
