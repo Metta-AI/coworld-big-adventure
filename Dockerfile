@@ -49,4 +49,4 @@ COPY --from=build /bin/big_adventure /bin/big_adventure
 COPY data ./data
 COPY coworld_manifest.json .
 
-CMD ["/bin/big_adventure", "--address:0.0.0.0", "--port:8080"]
+CMD ["/bin/big_adventure"]

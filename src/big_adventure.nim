@@ -1,4 +1,4 @@
-import std/[json, os, parseopt, strutils]
+import std/[json, os]
 import bitworld/runtime
 import jsony
 import bitworld/protocol, big_adventure/server
@@ -13,9 +13,6 @@ type
     maxTicks: int
     maxGames: int
     tokens: seq[string]
-    saveReplayPath: string
-    loadReplayPath: string
-    saveScoresPath: string
     profileTracePath: string
     profileTicks: int
 
@@ -63,41 +60,15 @@ proc readConfigInt(node: JsonNode, name: string, value: var int) =
     )
   value = item.getInt()
 
-proc defaultReplayPath(): string =
-  ## Returns the configured replay save path from the environment.
-  outputPathFromCogameEnv(CogameSaveReplayUriEnv, "replay.bitreplay")
-
-proc defaultLoadReplayPath(): string =
-  ## Returns the configured replay load path from the environment.
-  pathFromCogameEnv(CogameLoadReplayUriEnv)
-
-proc defaultScoresPath(): string =
-  ## Returns the configured score save path from the environment.
-  outputPathFromCogameEnv(CogameResultsUriEnv, "scores.json")
-
 proc isKnownConfigField(name: string): bool =
   ## Returns true when a JSON config field is supported.
   case name
-  of "address",
-      "port",
-      "seed",
+  of "seed",
       "maxTicks",
       "max-ticks",
       "maxGames",
       "max-games",
       "tokens",
-      "saveReplay",
-      "loadReplay",
-      "saveScores",
-      "saveReplayPath",
-      "loadReplayPath",
-      "saveScoresPath",
-      "save-replay",
-      "load-replay",
-      "save-scores",
-      "save-replay-path",
-      "load-replay-path",
-      "save-scores-path",
       "profileTracePath",
       "profile-trace-path",
       "profileTicks",
@@ -130,20 +101,6 @@ proc update(config: var RunConfig, jsonText: string) =
   if node.kind != JObject:
     raise newException(BigAdventureError, "Config must be a JSON object.")
   node.validateConfigFields()
-  node.readConfigString("address", config.address)
-  node.readConfigInt("port", config.port)
-  node.readConfigString("saveReplay", config.saveReplayPath)
-  node.readConfigString("loadReplay", config.loadReplayPath)
-  node.readConfigString("saveScores", config.saveScoresPath)
-  node.readConfigString("saveReplayPath", config.saveReplayPath)
-  node.readConfigString("loadReplayPath", config.loadReplayPath)
-  node.readConfigString("saveScoresPath", config.saveScoresPath)
-  node.readConfigString("save-replay", config.saveReplayPath)
-  node.readConfigString("load-replay", config.loadReplayPath)
-  node.readConfigString("save-scores", config.saveScoresPath)
-  node.readConfigString("save-replay-path", config.saveReplayPath)
-  node.readConfigString("load-replay-path", config.loadReplayPath)
-  node.readConfigString("save-scores-path", config.saveScoresPath)
   node.readConfigString("profileTracePath", config.profileTracePath)
   node.readConfigString("profile-trace-path", config.profileTracePath)
   node.readConfigInt("seed", config.seed)
@@ -154,25 +111,6 @@ proc update(config: var RunConfig, jsonText: string) =
   node.readConfigInt("profileTicks", config.profileTicks)
   node.readConfigInt("profile-ticks", config.profileTicks)
   node.readConfigStrings("tokens", config.tokens)
-
-proc requireOptionValue(name, value: string) =
-  ## Raises when a CLI option is missing its value.
-  if value.len == 0:
-    raise newException(
-      BigAdventureError,
-      "Option --" & name & " requires a value."
-    )
-
-proc parseOptionInt(name, value: string): int =
-  ## Parses one integer CLI option.
-  name.requireOptionValue(value)
-  try:
-    result = parseInt(value)
-  except ValueError:
-    raise newException(
-      BigAdventureError,
-      "Option --" & name & " must be an integer."
-    )
 
 proc validate(config: RunConfig) =
   ## Raises when a run config value is outside the supported range.
@@ -192,18 +130,14 @@ proc validate(config: RunConfig) =
       "Config field profileTicks must be non-negative."
     )
 
-proc echoStartupPaths(config: RunConfig) =
+proc echoStartupPaths(config: RunConfig, runtimeConfig: RuntimeConfig) =
   ## Prints configured replay and score output paths.
-  if config.loadReplayPath.len > 0:
-    echo "Loading replay file: " & config.loadReplayPath
-  if config.saveReplayPath.len > 0:
-    echo "Writing replay file: " & config.saveReplayPath
-  else:
-    echo "Not writing replay file."
-  if config.saveScoresPath.len > 0:
-    echo "Writing scores file: " & config.saveScoresPath
-  else:
-    echo "Not writing scores file."
+  if runtimeConfig.replayMode:
+    echo "Loading replay from runtime config."
+  if runtimeConfig.replayUri.len > 0:
+    echo "Writing replay target: " & runtimeConfig.replayUri
+  if runtimeConfig.resultsUri.len > 0:
+    echo "Writing results target: " & runtimeConfig.resultsUri
   if config.tokens.len > 0:
     echo "Using " & $config.tokens.len & " player connection tokens."
   else:
@@ -224,80 +158,43 @@ proc echoStartupPaths(config: RunConfig) =
       echo "Profile ticks: until shutdown"
 
 when isMainModule:
+  let runtimeConfig = readRuntimeConfig(DefaultHost, DefaultPort)
   var
     config = RunConfig(
-      address: cogameHost(DefaultHost),
-      port: cogamePort(DefaultPort),
+      address: runtimeConfig.host,
+      port: runtimeConfig.port,
       seed: 0xB1770,
       maxTicks: DefaultMaxTicks,
       maxGames: DefaultMaxGames,
       tokens: @[],
-      saveReplayPath: defaultReplayPath(),
-      loadReplayPath: defaultLoadReplayPath(),
-      saveScoresPath: defaultScoresPath(),
       profileTracePath: "",
       profileTicks: 0
     )
-    configPath = pathFromCogameEnv(CogameConfigUriEnv)
-    configJson = ""
-  for kind, key, val in getopt():
-    case kind
-    of cmdLongOption:
-      case key
-      of "address":
-        key.requireOptionValue(val)
-        config.address = val
-      of "port":
-        config.port = key.parseOptionInt(val)
-      of "seed":
-        config.seed = key.parseOptionInt(val)
-      of "max-ticks", "maxTicks":
-        config.maxTicks = key.parseOptionInt(val)
-      of "max-games", "maxGames":
-        config.maxGames = key.parseOptionInt(val)
-      of "save-replay", "save-replay-path", "saveReplayPath":
-        key.requireOptionValue(val)
-        config.saveReplayPath = val
-      of "load-replay", "load-replay-path", "loadReplayPath":
-        key.requireOptionValue(val)
-        config.loadReplayPath = val
-      of "save-scores", "save-scores-path", "saveScoresPath":
-        key.requireOptionValue(val)
-        config.saveScoresPath = val
-      of "profile-trace-path", "profileTracePath":
-        key.requireOptionValue(val)
-        config.profileTracePath = val
-      of "profile-ticks", "profileTicks":
-        config.profileTicks = key.parseOptionInt(val)
-      of "config":
-        key.requireOptionValue(val)
-        configJson = val
-      of "config-file":
-        key.requireOptionValue(val)
-        configPath = val
-      else:
-        raise newException(BigAdventureError, "Unknown option: --" & key)
-    of cmdShortOption:
-      raise newException(BigAdventureError, "Unknown option: -" & key)
-    of cmdArgument:
-      raise newException(BigAdventureError, "Unexpected argument: " & key)
-    of cmdEnd:
-      discard
-  if configPath.len > 0:
-    config.update(readFile(configPath))
-  if configJson.len > 0:
-    config.update(configJson)
+  config.update(runtimeConfig.config)
   config.validate()
-  config.echoStartupPaths()
+  config.echoStartupPaths(runtimeConfig)
+  let
+    saveReplayPath =
+      if runtimeConfig.replayUri.len > 0:
+        getTempDir() / ("big-adventure-replay-" & $getCurrentProcessId() &
+          ".bitreplay")
+      else:
+        ""
+    loadReplayPath =
+      if runtimeConfig.replayMode:
+        let path = getTempDir() / ("big-adventure-load-replay-" &
+          $getCurrentProcessId() & ".bitreplay")
+        writeFile(path, runtimeConfig.replay)
+        path
+      else:
+        ""
   runServerLoop(
     config.address,
     config.port,
     config.seed,
-    config.saveReplayPath,
-    config.loadReplayPath,
-    config.saveScoresPath,
-    getEnv(CogameSaveReplayUriEnv),
-    getEnv(CogameResultsUriEnv),
+    saveReplayPath,
+    loadReplayPath,
+    runtimeConfig,
     config.tokens,
     config.maxTicks,
     config.maxGames,

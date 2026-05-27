@@ -779,34 +779,17 @@ proc buildRewardPacket(sim: SimServer): string =
     result.add($player.coins)
     result.add("\n")
 
-proc writeScoreFile(sim: SimServer, path: string) =
-  ## Writes the current score JSON if a path is configured.
-  if path.len == 0:
-    return
-  let dir = path.parentDir()
-  if dir.len > 0:
-    createDir(dir)
-  writeFile(path, sim.playerScoresJson() & "\n")
-
 proc writeScoresIfNeeded(
   sim: SimServer,
-  path: string,
   lastRevision: var int,
-  uri = ""
+  runtimeConfig: RuntimeConfig
 ) =
   ## Writes scores when score-visible state changed.
-  if path.len == 0:
+  if runtimeConfig.resultsUri.len == 0:
     return
   if sim.scoreRevision == lastRevision:
     return
-  sim.writeScoreFile(path)
-  if uri.len > 0:
-    writeCogameFileToUri(
-      uri,
-      path,
-      "application/json",
-      CogameResultsUriEnv
-    )
+  runtimeConfig.writeResults(sim.playerScoresJson() & "\n")
   lastRevision = sim.scoreRevision
 
 proc dumpProfileTrace(path: string) =
@@ -825,9 +808,7 @@ proc runServerLoop*(
   seed = 0xB1770,
   saveReplayPath = "",
   loadReplayPath = "",
-  saveScoresPath = "",
-  saveReplayUri = "",
-  saveScoresUri = "",
+  runtimeConfig = RuntimeConfig(),
   tokens: seq[string] = @[],
   maxTicks = DefaultMaxTicks,
   maxGames = DefaultMaxGames,
@@ -871,13 +852,8 @@ proc runServerLoop*(
         ReplayPlayer()
   defer:
     replayWriter.closeReplayWriter()
-    if saveReplayUri.len > 0:
-      writeCogameFileToUri(
-        saveReplayUri,
-        saveReplayPath,
-        "application/octet-stream",
-        CogameSaveReplayUriEnv
-      )
+    if saveReplayPath.len > 0 and fileExists(saveReplayPath):
+      runtimeConfig.writeReplay(readFile(saveReplayPath))
   appState.replayLoaded = replayLoaded
 
   let httpServer = newServer(
@@ -899,7 +875,6 @@ proc runServerLoop*(
     runTicks = 0
     gamesStarted = 1
     profileActive = profileTracePath.len > 0
-  sim.writeScoresIfNeeded(saveScoresPath, lastScoreRevision, saveScoresUri)
   defer:
     if profileActive:
       profileActive = false
@@ -1014,11 +989,13 @@ proc runServerLoop*(
           rewardViewers.add(websocket)
 
     if shouldReset and maxGames > 0 and gamesStarted >= maxGames:
+      sim.writeScoresIfNeeded(lastScoreRevision, runtimeConfig)
       httpServer.close()
       joinThread(serverThread)
       break
 
     if shouldReset:
+      sim.writeScoresIfNeeded(lastScoreRevision, runtimeConfig)
       inc gamesStarted
       inc currentSeed
       sim = initSimServer(currentSeed)
@@ -1053,11 +1030,6 @@ proc runServerLoop*(
           for websocket in appState.rewardViewers.keys:
             rewardViewers.add(websocket)
 
-      sim.writeScoresIfNeeded(
-        saveScoresPath,
-        lastScoreRevision,
-        saveScoresUri
-      )
       let rewardPacket = sim.buildRewardPacket()
       for i in 0 ..< sockets.len:
         var nextState: PlayerViewerState
@@ -1096,7 +1068,6 @@ proc runServerLoop*(
         profileActive = false
         dumpProfileTrace(profileTracePath)
 
-    sim.writeScoresIfNeeded(saveScoresPath, lastScoreRevision, saveScoresUri)
     let rewardPacket = sim.buildRewardPacket()
 
     for i in 0 ..< sockets.len:
