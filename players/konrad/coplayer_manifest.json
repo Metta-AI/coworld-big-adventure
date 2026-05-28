@@ -1,7 +1,7 @@
 {
   "author": "treeform@softmax.com",
   "name": "konrad",
-  "image_uri": "ghcr.io/treeform/bitworld-konrad:latest",
+  "image_uri": "public.ecr.aws/s3j4p9s7/treeform/players/konrad:latest",
   "games": [
     "big_adventure"
   ],
