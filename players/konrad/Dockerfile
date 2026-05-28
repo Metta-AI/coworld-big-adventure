@@ -25,7 +25,7 @@ https://github.com/treeform/nimby/releases/download/0.1.26/nimby-Linux-ARM64; \
 
 ENV PATH="/root/.nimby/nim/bin:$PATH"
 
-WORKDIR /workspace/cogame-big-adventure
+WORKDIR /workspace/coworld-big-adventure
 COPY nimby.lock .
 RUN nimby --global sync nimby.lock
 
@@ -33,7 +33,7 @@ COPY . .
 RUN nim c \
   -d:release \
   --path:src \
-  --nimcache:/tmp/cogame-nimcache \
+  --nimcache:/tmp/coworld-nimcache \
   --out:/bin/konrad \
   players/konrad/konrad.nim
 
