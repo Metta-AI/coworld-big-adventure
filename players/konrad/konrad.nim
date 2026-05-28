@@ -1239,6 +1239,7 @@ proc runBot(
   slot = -1,
   chat = false,
   maxSteps = 0,
+  exitOnDisconnect = false,
   profileTracePath = "",
   profileTicks = 0
 ) {.measure.} =
@@ -1296,6 +1297,10 @@ proc runBot(
           ws.close()
           return
     except CatchableError as e:
+      if exitOnDisconnect:
+        echo "konrad exiting after disconnect: ", e.msg
+        flushFile(stdout)
+        return
       echo "konrad reconnecting after error: ", e.msg
       flushFile(stdout)
       sleep(250)
@@ -1314,6 +1319,7 @@ when isMainModule:
     slot = -1
     chat = false
     maxSteps = 0
+    exitOnDisconnect = false
     profileTracePath = ""
     profileTicks = 0
   for kind, key, val in getopt():
@@ -1336,6 +1342,8 @@ when isMainModule:
         chat = true
       of "max-steps":
         maxSteps = parseInt(val)
+      of "exit-on-disconnect", "exitOnDisconnect":
+        exitOnDisconnect = true
       of "profile-trace-path", "profileTracePath":
         profileTracePath = val
       of "profile-ticks", "profileTicks":
@@ -1359,6 +1367,7 @@ when isMainModule:
     slot,
     chat,
     maxSteps,
+    exitOnDisconnect,
     profileTracePath,
     profileTicks
   )

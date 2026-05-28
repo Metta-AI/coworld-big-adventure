@@ -641,6 +641,10 @@ proc httpHandler(request: Request) =
   elif request.path == RewardWebSocketPath and request.httpMethod == "GET" and
       not request.isWebSocketUpgrade():
     discard request.serveClientFile(RewardClientRoute, GlobalClientRoute)
+  elif request.path == ReplayWebSocketPath and
+      request.httpMethod == "GET" and
+      not request.isWebSocketUpgrade():
+    discard request.serveClientFile(ReplayClientRoute, GlobalClientRoute)
   elif request.path == WebSocketPath and
       request.httpMethod == "GET" and
       request.isWebSocketUpgrade():
@@ -660,6 +664,13 @@ proc httpHandler(request: Request) =
       withLock appState.lock:
         websocket.registerPlayerSocket(address, slot, token)
   elif request.path == GlobalWebSocketPath and request.httpMethod == "GET" and
+      request.isWebSocketUpgrade():
+    let websocket = request.upgradeToWebSocket()
+    {.gcsafe.}:
+      withLock appState.lock:
+        websocket.registerGlobalSocket()
+  elif request.path == ReplayWebSocketPath and
+      request.httpMethod == "GET" and
       request.isWebSocketUpgrade():
     let websocket = request.upgradeToWebSocket()
     {.gcsafe.}:
