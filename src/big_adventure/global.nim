@@ -58,6 +58,8 @@ const
   ScorePanelNameGapX = 2
   ScorePanelSelectedGapY = 2
   ScorePanelMaxScoreChars = 16
+  PlayerViewportWidth = 320
+  PlayerViewportHeight = 200
   UiColors = [
     (r: 0'u8, g: 0'u8, b: 0'u8, a: 255'u8),
     (r: 20'u8, g: 24'u8, b: 30'u8, a: 235'u8),
@@ -116,6 +118,13 @@ type
   ObjectCacheEntry = object
     id, x, y, z, layer, spriteId: int
 
+  PlayerViewerState* = object
+    initialized*: bool
+    objectIds*: seq[int]
+    objectCache: seq[ObjectCacheEntry]
+    hudCoins*: int
+    hudLives*: int
+
   GlobalViewerState* = object
     initialized*: bool
     objectIds*: seq[int]
@@ -131,16 +140,17 @@ type
     replaySeekTick*: int
     replayCommands*: seq[char]
     scorePanelDigitsDefined: bool
-
-  PlayerViewerState* = object
-    initialized*: bool
-    objectIds*: seq[int]
-    objectCache: seq[ObjectCacheEntry]
-    hudCoins*: int
-    hudLives*: int
+    povActive*: bool
+    povPlayerId*: int
+    povState*: PlayerViewerState
 
   WorldSpriteObject = object
     id, x, y, spriteId, sortY: int
+
+proc initPlayerViewerState*(): PlayerViewerState =
+  ## Returns the default state for one sprite player viewer.
+  result.hudCoins = -1
+  result.hudLives = -1
 
 proc initGlobalViewerState*(): GlobalViewerState =
   ## Returns the default state for one global protocol viewer.
@@ -148,11 +158,8 @@ proc initGlobalViewerState*(): GlobalViewerState =
   result.selectedPlayerId = -1
   result.replaySeekTick = -1
   result.replayCommands = @[]
-
-proc initPlayerViewerState*(): PlayerViewerState =
-  ## Returns the default state for one sprite player viewer.
-  result.hudCoins = -1
-  result.hudLives = -1
+  result.povPlayerId = -1
+  result.povState = initPlayerViewerState()
 
 proc putRgbaPixel(pixels: var seq[uint8], pixelIndex: int, color: uint8) =
   ## Writes one generated UI color as a global protocol RGBA pixel.
@@ -367,6 +374,10 @@ proc addDeleteObject(packet: var seq[uint8], objectId: int) {.measure.} =
   ## Appends a global protocol object delete message.
   packet.addU8(0x03)
   packet.addU16(objectId)
+
+proc addClearObjects(packet: var seq[uint8]) {.measure.} =
+  ## Appends a global protocol clear objects message.
+  packet.addU8(0x04)
 
 proc findObjectCache(
   cache: openArray[ObjectCacheEntry],
@@ -1267,14 +1278,20 @@ proc addScorePanelPlayerSprites(
   packet: var seq[uint8],
   cache: var seq[SpriteCacheEntry],
   playerIndex: int,
-  name: string
+  name: string,
+  selected: bool
 ) {.measure.} =
   ## Adds score panel player sprites only when their pixels change.
   let
     player = sim.players[playerIndex]
     color = playerIndex.playerTintColor()
     pip = buildScorePanelPipSprite(color)
-    label = sim.buildSpriteProtocolTextSprite([name], color)
+    labelColor =
+      if selected:
+        SelectedOutlineColor
+      else:
+        color
+    label = sim.buildSpriteProtocolTextSprite([name], labelColor)
   packet.addSpriteCached(
     cache,
     scorePanelPipSpriteId(player.id),
@@ -1475,6 +1492,46 @@ proc selectSpritePlayer(sim: SimServer, mouseX, mouseY: int): int =
       bestY = player.y
       result = player.id
 
+proc scorePanelPlayerIdAt(
+  sim: SimServer,
+  layer,
+  mouseX,
+  mouseY: int
+): int {.measure.} =
+  ## Returns the player id for one clicked score panel name.
+  if layer != TopLeftLayerId or sim.players.len == 0:
+    return -1
+  let playerIds = sim.scorePanelPlayerIds()
+  let
+    lineHeight = sim.textFont.lineHeight()
+    rowHeight = max(lineHeight, ScorePanelPipSize)
+    row = mouseY div rowHeight
+  if mouseY < 0 or row < 0 or row >= playerIds.len:
+    return -1
+  let
+    scoreColumnWidth = sim.scorePanelScoreWidth(playerIds)
+    nameX = ScorePanelPipSize + ScorePanelPipGapX +
+      scoreColumnWidth + ScorePanelNameGapX
+    nameMaxWidth = max(1, ScreenWidth - nameX)
+    playerIndex = playerIds[row]
+    name = sim.scorePanelNameText(playerIndex, nameMaxWidth)
+    nameWidth = sim.textFont.textWidth(name)
+    rowY = row * rowHeight
+  if mouseY < rowY or mouseY >= rowY + lineHeight:
+    return -1
+  if mouseX < nameX or mouseX >= nameX + nameWidth:
+    return -1
+  sim.players[playerIndex].id
+
+proc toggleSelectedPlayerId(state: var GlobalViewerState, playerId: int) =
+  ## Selects or clears the current global point-of-view player.
+  if playerId < 0:
+    state.selectedPlayerId = -1
+  elif state.selectedPlayerId == playerId:
+    state.selectedPlayerId = -1
+  else:
+    state.selectedPlayerId = playerId
+
 proc replayCommandAt(layer, x, y: int): char =
   ## Returns the replay transport command under a UI coordinate.
   if layer != ReplayBottomLeftLayerId:
@@ -1667,6 +1724,7 @@ proc addCommonSpriteDefinitions(
 proc buildSpriteProtocolInit(sim: SimServer): seq[uint8] {.measure.} =
   ## Builds the initial global viewer snapshot.
   result = @[]
+  result.addClearObjects()
   result.addLayer(MapLayerId, MapLayerType, ZoomableLayerFlag)
   result.addViewport(MapLayerId, WorldWidthPixels, WorldHeightPixels)
   result.addLayer(TopLeftLayerId, TopLeftLayerType, UiLayerFlag)
@@ -1695,8 +1753,9 @@ proc buildSpriteProtocolInit(sim: SimServer): seq[uint8] {.measure.} =
 proc buildSpriteProtocolPlayerInit(sim: SimServer): seq[uint8] {.measure.} =
   ## Builds the initial sprite player snapshot.
   result = @[]
+  result.addClearObjects()
   result.addLayer(MapLayerId, MapLayerType, ZoomableLayerFlag)
-  result.addViewport(MapLayerId, ScreenWidth, ScreenHeight)
+  result.addViewport(MapLayerId, PlayerViewportWidth, PlayerViewportHeight)
   result.addSprite(
     MapSpriteId,
     WorldWidthPixels,
@@ -2081,8 +2140,8 @@ proc addPlayerStatus(
   ## Adds centered status text to a sprite-player view.
   let
     text = sim.buildSpriteProtocolTextSprite(lines, 2'u8)
-    x = max(0, (ScreenWidth - text.width) div 2)
-    y = max(0, (ScreenHeight - text.height) div 2)
+    x = max(0, (PlayerViewportWidth - text.width) div 2)
+    y = max(0, (PlayerViewportHeight - text.height) div 2)
   currentIds.add(StatusHudObjectId)
   packet.addSprite(
     StatusHudSpriteId,
@@ -2107,7 +2166,8 @@ proc addGlobalScorePanel(
   currentIds: var seq[int],
   objectCache: var seq[ObjectCacheEntry],
   state: GlobalViewerState,
-  nextState: var GlobalViewerState
+  nextState: var GlobalViewerState,
+  selectedPlayerId = -1
 ): int {.measure.} =
   ## Adds global player score panel objects and returns its height.
   if sim.players.len == 0:
@@ -2133,13 +2193,15 @@ proc addGlobalScorePanel(
       scoreX = ScorePanelPipSize + ScorePanelPipGapX +
         max(0, scoreColumnWidth - scoreWidth)
       name = sim.scorePanelNameText(playerIndex, nameMaxWidth)
+      selected = player.id == selectedPlayerId
       pipObjectId = scorePanelPipObjectId(player.id)
       nameObjectId = scorePanelNameObjectId(player.id)
     sim.addScorePanelPlayerSprites(
       packet,
       nextState.spriteCache,
       playerIndex,
-      name
+      name,
+      selected
     )
     packet.addObjectCached(
       objectCache,
@@ -2191,6 +2253,7 @@ proc buildSpriteProtocolPlayerUpdates*(
   result = @[]
   nextState = state
   if not nextState.initialized:
+    nextState.objectCache.setLen(0)
     result = sim.buildSpriteProtocolPlayerInit()
     nextState.initialized = true
 
@@ -2201,12 +2264,12 @@ proc buildSpriteProtocolPlayerUpdates*(
     let player = sim.players[playerIndex]
     let
       cameraX = worldClampPixel(
-        player.x + player.sprite.width div 2 - ScreenWidth div 2,
-        WorldWidthPixels - ScreenWidth
+        player.x + player.sprite.width div 2 - PlayerViewportWidth div 2,
+        WorldWidthPixels - PlayerViewportWidth
       )
       cameraY = worldClampPixel(
-        player.y + player.sprite.height div 2 - ScreenHeight div 2,
-        WorldHeightPixels - ScreenHeight
+        player.y + player.sprite.height div 2 - PlayerViewportHeight div 2,
+        WorldHeightPixels - PlayerViewportHeight
       )
     currentIds.add(MapObjectId)
     result.addObjectCached(
@@ -2224,8 +2287,8 @@ proc buildSpriteProtocolPlayerUpdates*(
       nextState.objectCache,
       cameraX,
       cameraY,
-      ScreenWidth,
-      ScreenHeight
+      PlayerViewportWidth,
+      PlayerViewportHeight
     )
     sim.addPlayerHud(
       result,
@@ -2266,29 +2329,39 @@ proc buildSpriteProtocolUpdates*(
   nextState.replayCommands.setLen(0)
   nextState.replaySeekTick = -1
   if nextState.clickPending:
-    let seekTick = replayScrubTickAt(
+    let scorePanelPlayerId = sim.scorePanelPlayerIdAt(
       nextState.mouseLayer,
       nextState.mouseX,
-      nextState.mouseY,
-      replayMaxTick
+      nextState.mouseY
     )
-    if replayTick >= 0 and seekTick >= 0:
-      nextState.scrubbingReplay = true
-      nextState.replaySeekTick = seekTick
-    elif replayTick >= 0:
-      let command = replayCommandAt(
+    if scorePanelPlayerId >= 0:
+      nextState.toggleSelectedPlayerId(scorePanelPlayerId)
+    else:
+      let seekTick = replayScrubTickAt(
         nextState.mouseLayer,
         nextState.mouseX,
-        nextState.mouseY
+        nextState.mouseY,
+        replayMaxTick
       )
-      if command != '\0':
-        nextState.replayCommands.add(command)
-      elif nextState.mouseLayer == MapLayerId:
-        nextState.selectedPlayerId =
+      if replayTick >= 0 and seekTick >= 0:
+        nextState.scrubbingReplay = true
+        nextState.replaySeekTick = seekTick
+      elif replayTick >= 0:
+        let command = replayCommandAt(
+          nextState.mouseLayer,
+          nextState.mouseX,
+          nextState.mouseY
+        )
+        if command != '\0':
+          nextState.replayCommands.add(command)
+        elif not nextState.povActive and nextState.mouseLayer == MapLayerId:
+          nextState.toggleSelectedPlayerId(
+            sim.selectSpritePlayer(nextState.mouseX, nextState.mouseY)
+          )
+      elif not nextState.povActive and nextState.mouseLayer == MapLayerId:
+        nextState.toggleSelectedPlayerId(
           sim.selectSpritePlayer(nextState.mouseX, nextState.mouseY)
-    elif nextState.mouseLayer == MapLayerId:
-      nextState.selectedPlayerId =
-        sim.selectSpritePlayer(nextState.mouseX, nextState.mouseY)
+        )
     nextState.clickPending = false
   if replayTick >= 0 and nextState.mouseDown and nextState.scrubbingReplay:
     let seekTick = replayScrubTickAt(
@@ -2299,7 +2372,55 @@ proc buildSpriteProtocolUpdates*(
     )
     if seekTick >= 0:
       nextState.replaySeekTick = seekTick
+
+  let playerIndex = sim.selectedPlayerIndex(nextState.selectedPlayerId)
+  if playerIndex < 0:
+    nextState.selectedPlayerId = -1
+  let
+    povActive = playerIndex >= 0
+    povChanged = povActive != state.povActive or
+      nextState.selectedPlayerId != state.povPlayerId
+  if povChanged:
+    nextState.objectIds.setLen(0)
+    nextState.objectCache.setLen(0)
+    nextState.povState = initPlayerViewerState()
+    if not povActive:
+      nextState.initialized = false
+  nextState.povActive = povActive
+  nextState.povPlayerId = nextState.selectedPlayerId
+  if povActive:
+    var povState: PlayerViewerState
+    let povClearsObjects = not nextState.povState.initialized
+    result = sim.buildSpriteProtocolPlayerUpdates(
+      playerIndex,
+      nextState.povState,
+      povState
+    )
+    nextState.initialized = false
+    nextState.povState = povState
+    var currentIds: seq[int] = @[]
+    if povClearsObjects:
+      result.addLayer(TopLeftLayerId, TopLeftLayerType, UiLayerFlag)
+      result.addViewport(TopLeftLayerId, ScreenWidth, ScreenHeight)
+    discard sim.addGlobalScorePanel(
+      result,
+      currentIds,
+      nextState.objectCache,
+      state,
+      nextState,
+      nextState.selectedPlayerId
+    )
+    if not povClearsObjects:
+      result.deleteMissingObjects(
+        state.objectIds,
+        currentIds,
+        nextState.objectCache
+      )
+    nextState.objectIds = currentIds
+    return
+
   if not nextState.initialized:
+    nextState.objectCache.setLen(0)
     result = sim.buildSpriteProtocolInit()
     nextState.initialized = true
 
@@ -2320,10 +2441,10 @@ proc buildSpriteProtocolUpdates*(
     currentIds,
     nextState.objectCache,
     state,
-    nextState
+    nextState,
+    nextState.selectedPlayerId
   )
 
-  let playerIndex = sim.selectedPlayerIndex(nextState.selectedPlayerId)
   if playerIndex >= 0:
     var lines: seq[string] = @[]
     let player = sim.players[playerIndex]

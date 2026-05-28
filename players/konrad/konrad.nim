@@ -26,6 +26,8 @@ const
   JiggleDuration = 12
   SkipTargetTicks = 72
   ExploreStep = 17
+  PlayerViewportWidth = 320
+  PlayerViewportHeight = 200
   MoveMask = ButtonUp or ButtonDown or ButtonLeft or ButtonRight
 
 type
@@ -466,8 +468,8 @@ proc updatePlayerPosition(bot: var Bot) {.measure.} =
   ## Tracks the local player feet as the object nearest screen center.
   var
     bestDistance = high(int)
-    bestX = bot.cameraX + ScreenWidth div 2
-    bestY = bot.cameraY + ScreenHeight div 2
+    bestX = bot.cameraX + PlayerViewportWidth div 2
+    bestY = bot.cameraY + PlayerViewportHeight div 2
     bestCenterX = bestX
     bestCenterY = bestY
     bestId = -1
@@ -491,8 +493,8 @@ proc updatePlayerPosition(bot: var Bot) {.measure.} =
       distance = distanceSquared(
         screenCenter.x,
         screenCenter.y,
-        ScreenWidth div 2,
-        ScreenHeight div 2
+        PlayerViewportWidth div 2,
+        PlayerViewportHeight div 2
       )
     if distance < bestDistance:
       bestDistance = distance

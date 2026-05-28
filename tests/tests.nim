@@ -14,6 +14,8 @@ const
   ScorePanelDigitObjectBaseForTest = 15000
   ScorePanelNameObjectBaseForTest = 17000
   ScorePanelMaxScoreCharsForTest = 16
+  PlayerViewportWidthForTest = 320
+  PlayerViewportHeightForTest = 200
 
 type
   SpritePacketObject = object
@@ -21,6 +23,11 @@ type
     x: int
     y: int
     spriteId: int
+
+  SpritePacketViewport = object
+    layer: int
+    width: int
+    height: int
 
 proc readU16(packet: openArray[uint8], offset: int): int =
   ## Reads one little endian unsigned 16 bit value from a packet.
@@ -100,6 +107,52 @@ proc spritePacketObjectIds(packet: openArray[uint8]): seq[int] =
   ## Returns all object ids defined in one sprite protocol packet.
   for item in packet.spritePacketObjects():
     result.add item.id
+
+proc spritePacketViewports(
+  packet: openArray[uint8]
+): seq[SpritePacketViewport] =
+  ## Returns all viewport definitions in one sprite protocol packet.
+  var offset = 0
+  while offset < packet.len:
+    let messageType = packet[offset]
+    inc offset
+    case messageType
+    of 0x01'u8:
+      doAssert offset + 10 <= packet.len
+      let compressedLen = packet.readU32(offset + 6)
+      offset += 10 + compressedLen
+      doAssert offset + 2 <= packet.len
+      let labelLen = packet.readU16(offset)
+      offset += 2 + labelLen
+    of 0x02'u8:
+      doAssert offset + 11 <= packet.len
+      offset += 11
+    of 0x03'u8:
+      offset += 2
+    of 0x04'u8:
+      discard
+    of 0x05'u8:
+      doAssert offset + 5 <= packet.len
+      result.add SpritePacketViewport(
+        layer: int(packet[offset]),
+        width: packet.readU16(offset + 1),
+        height: packet.readU16(offset + 3)
+      )
+      offset += 5
+    of 0x06'u8:
+      offset += 3
+    else:
+      doAssert false, "unknown sprite protocol message"
+
+proc findViewport(
+  viewports: openArray[SpritePacketViewport],
+  layer: int
+): SpritePacketViewport =
+  ## Returns one viewport by layer or fails the test.
+  for item in viewports:
+    if item.layer == layer:
+      return item
+  doAssert false, "missing sprite protocol viewport"
 
 proc findObject(
   objects: openArray[SpritePacketObject],
@@ -237,9 +290,90 @@ proc testGlobalScorePanelRenders() =
   doAssert ScorePanelNameSpriteBaseForTest + redId notin cachedSpriteIds,
     "unchanged score name sprites should not be sent again"
 
+proc testScorePanelNameSelectsPlayerPov() =
+  ## Checks that score panel names toggle player point of view.
+  var sim = initBigAdventureForTest()
+  let
+    red = sim.addPlayer("red")
+    blue = sim.addPlayer("blue")
+    blueId = sim.players[blue].id
+    blueNameObject = ScorePanelNameObjectBaseForTest + blueId
+  sim.players[red].coins = 4
+  sim.players[blue].coins = 12
+
+  var globalState: GlobalViewerState
+  let globalPacket = sim.buildSpriteProtocolUpdates(
+    initGlobalViewerState(),
+    globalState
+  )
+  let blueName = globalPacket.spritePacketObjects().findObject(blueNameObject)
+
+  var clickState = globalState
+  clickState.mouseLayer = TopLeftLayerId
+  clickState.mouseX = blueName.x
+  clickState.mouseY = blueName.y
+  clickState.clickPending = true
+
+  var povState: GlobalViewerState
+  let povPacket = sim.buildSpriteProtocolUpdates(clickState, povState)
+  doAssert povState.selectedPlayerId == blueId,
+    "clicking a score panel name should select that player"
+  doAssert povState.povActive,
+    "selecting a score panel name should enter player point of view"
+  doAssert povState.povPlayerId == blueId,
+    "point of view should track the selected player id"
+  doAssert MapObjectId in povPacket.spritePacketObjectIds(),
+    "player point of view should include the player camera map object"
+  doAssert blueNameObject in povPacket.spritePacketObjectIds(),
+    "player point of view should keep score panel names clickable"
+
+  var clearState = povState
+  clearState.mouseLayer = TopLeftLayerId
+  clearState.mouseX = blueName.x
+  clearState.mouseY = blueName.y
+  clearState.clickPending = true
+
+  var nextState: GlobalViewerState
+  discard sim.buildSpriteProtocolUpdates(clearState, nextState)
+  doAssert nextState.selectedPlayerId == -1,
+    "clicking the selected score panel name should clear selection"
+  doAssert not nextState.povActive,
+    "clearing selection should return to global view"
+
+proc testPlayerViewUsesWideViewport() =
+  ## Checks that player and global PoV views use a 320 by 200 viewport.
+  var sim = initBigAdventureForTest()
+  let playerIndex = sim.addPlayer("wide")
+
+  var playerState: PlayerViewerState
+  let playerPacket = sim.buildSpriteProtocolPlayerUpdates(
+    playerIndex,
+    initPlayerViewerState(),
+    playerState
+  )
+  let playerViewport = playerPacket.spritePacketViewports().findViewport(
+    MapLayerId
+  )
+  doAssert playerViewport.width == PlayerViewportWidthForTest,
+    "player view should be 320 pixels wide"
+  doAssert playerViewport.height == PlayerViewportHeightForTest,
+    "player view should be 200 pixels high"
+
+  var clickState = initGlobalViewerState()
+  clickState.selectedPlayerId = sim.players[playerIndex].id
+  var povState: GlobalViewerState
+  let povPacket = sim.buildSpriteProtocolUpdates(clickState, povState)
+  let povViewport = povPacket.spritePacketViewports().findViewport(MapLayerId)
+  doAssert povViewport.width == PlayerViewportWidthForTest,
+    "global point of view should be 320 pixels wide"
+  doAssert povViewport.height == PlayerViewportHeightForTest,
+    "global point of view should be 200 pixels high"
+
 testPlayerDropsCarriedCoinsOnDeath()
 testMobsAvoidPlayerStart()
 testMobSightRadiusIsSmaller()
 testPlayerSpeedIsSlower()
 testGlobalScorePanelRenders()
+testScorePanelNameSelectsPlayerPov()
+testPlayerViewUsesWideViewport()
 echo "All tests passed"

@@ -4,8 +4,8 @@
 const WebSocket = require("ws");
 
 const PlayerDefaultPort = 2000;
-const ScreenWidth = 128;
-const ScreenHeight = 128;
+const ScreenWidth = 320;
+const ScreenHeight = 200;
 const WorldWidthTiles = 32;
 const WorldHeightTiles = 32;
 const WorldTileSize = 32;

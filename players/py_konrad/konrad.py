@@ -19,8 +19,8 @@ except ImportError as exc:
 
 
 PlayerDefaultPort = 2000
-ScreenWidth = 128
-ScreenHeight = 128
+ScreenWidth = 320
+ScreenHeight = 200
 WorldWidthTiles = 32
 WorldHeightTiles = 32
 WorldTileSize = 32
