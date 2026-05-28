@@ -319,34 +319,6 @@ proc isWebSocketUpgrade(request: Request): bool =
   ## Returns true when a GET request is a websocket upgrade.
   request.headers["Sec-WebSocket-Key"].len > 0
 
-proc clientStaticBody(route: string): string =
-  ## Returns the embedded BitWorld client body for one route.
-  case clientRoute(route, GlobalClientRoute)
-  of PlayerClientRoute, GlobalClientRoute, AdminClientRoute,
-      RewardClientRoute:
-    EmbeddedGlobalClientHtml
-  of SnappyClientRoute:
-    EmbeddedSnappyClientJs
-  else:
-    ""
-
-proc serveClientHtml(request: Request, route: string): bool =
-  ## Serves one static client file for a known client route.
-  if request.httpMethod != "GET":
-    return false
-  let body = clientStaticBody(route)
-  if body.len == 0:
-    return false
-  var headers: HttpHeaders
-  headers["Content-Type"] = clientStaticContentType(route, GlobalClientRoute)
-  headers["Cache-Control"] = "no-cache"
-  request.respond(200, headers, body)
-  true
-
-proc serveStaticClientHtml(request: Request): bool =
-  ## Serves one static client asset if the route matches.
-  request.serveClientHtml(request.path)
-
 proc inputStateFromMasks(currentMask, previousMask: uint8): InputState =
   ## Builds an input state from the current and previous button masks.
   result = decodeInputMask(currentMask)
@@ -662,13 +634,13 @@ proc httpHandler(request: Request) =
   elif request.path == WebSocketPath and
       request.httpMethod == "GET" and
       not request.isWebSocketUpgrade():
-    discard request.serveClientHtml(GlobalClientRoute)
+    discard request.serveClientFile(GlobalClientRoute, GlobalClientRoute)
   elif request.path == GlobalWebSocketPath and request.httpMethod == "GET" and
       not request.isWebSocketUpgrade():
-    discard request.serveClientHtml(GlobalClientRoute)
+    discard request.serveClientFile(GlobalClientRoute, GlobalClientRoute)
   elif request.path == RewardWebSocketPath and request.httpMethod == "GET" and
       not request.isWebSocketUpgrade():
-    discard request.serveClientHtml(RewardClientRoute)
+    discard request.serveClientFile(RewardClientRoute, GlobalClientRoute)
   elif request.path == WebSocketPath and
       request.httpMethod == "GET" and
       request.isWebSocketUpgrade():
@@ -699,7 +671,7 @@ proc httpHandler(request: Request) =
     {.gcsafe.}:
       withLock appState.lock:
         websocket.registerRewardSocket()
-  elif request.serveStaticClientHtml():
+  elif request.serveClientRoute(GlobalClientRoute):
     discard
   else:
     var headers: HttpHeaders

@@ -1,5 +1,6 @@
 import std/[json, os, random]
 import bitworld/aseprite
+import bitworld/client as bitworldClient
 import fluffy/measure, pixie
 import bitworld/protocol
 import bitworld/[pixelfonts, server]
@@ -242,11 +243,8 @@ type
 proc dataDir*(): string =
   getCurrentDir() / "data"
 
-proc repoDir*(): string =
-  getCurrentDir() / ".."
-
 proc clientDataDir*(): string =
-  repoDir() / "client" / "data"
+  bitworldClient.clientDir() / "data"
 
 proc sheetPath*(): string =
   ## Returns the new 32 by 32 Aseprite sheet path.
