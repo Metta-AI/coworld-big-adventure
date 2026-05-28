@@ -1,7 +1,7 @@
 import std/[json, os]
 import bitworld/runtime
 import jsony
-import bitworld/protocol, big_adventure/server
+import big_adventure/server
 
 type
   BigAdventureError = object of CatchableError
@@ -158,7 +158,7 @@ proc echoStartupPaths(config: RunConfig, runtimeConfig: RuntimeConfig) =
       echo "Profile ticks: until shutdown"
 
 when isMainModule:
-  let runtimeConfig = readRuntimeConfig(DefaultHost, DefaultPort)
+  let runtimeConfig = readRuntimeConfig()
   var
     config = RunConfig(
       address: runtimeConfig.host,
