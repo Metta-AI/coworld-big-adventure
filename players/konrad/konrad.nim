@@ -2,7 +2,7 @@ import
   std/[heapqueue, options, os, parseopt, random, strutils, times],
   fluffy/measure,
   supersnappy, whisky,
-  bitworld/protocol,
+  bitworld/spriteprotocol,
   big_adventure/sim
 
 const

@@ -2,7 +2,7 @@ import std/[json, os, random]
 import bitworld/aseprite
 import bitworld/client as bitworldClient
 import fluffy/measure, pixie
-import bitworld/protocol
+import bitworld/spriteprotocol
 import bitworld/[pixelfonts, server]
 
 const

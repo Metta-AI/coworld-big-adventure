@@ -3,7 +3,7 @@ import
   mummy,
   bitworld/client,
   fluffy/measure,
-  bitworld/protocol, bitworld/replays as replayCodec, bitworld/runtime,
+  bitworld/spriteprotocol, bitworld/replays as replayCodec, bitworld/runtime,
   sim, global
 
 const
