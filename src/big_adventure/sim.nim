@@ -11,12 +11,6 @@ const
   SheetTileSize* = ArtCellSize
   GameName* = "big_adventure"
   GameVersion* = "1"
-  ReplayMagic* = "BITWORLD"
-  ReplayFormatVersion* = 3'u16
-  ReplayTickHashRecord* = 0x01'u8
-  ReplayInputRecord* = 0x02'u8
-  ReplayJoinRecord* = 0x03'u8
-  ReplayLeaveRecord* = 0x04'u8
   ReplayFps* = 60
   WorldWidthTiles* = 32
   WorldHeightTiles* = 32

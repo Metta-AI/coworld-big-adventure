@@ -3,12 +3,25 @@ import
   mummy,
   bitworld/client,
   fluffy/measure,
-  bitworld/protocol, bitworld/runtime, sim, global
+  bitworld/protocol, bitworld/replays as replayCodec, bitworld/runtime,
+  sim, global
 
 const
   HealthzPath = "/healthz"
   DefaultMaxTicks* = TargetFps * 60 * 5
   DefaultMaxGames* = 0
+  BigAdventureReplayMagic = "BITWORLD"
+  BigAdventureReplayFormatVersion = 3'u16
+  BigAdventureReplaySpec = ReplaySpec(
+    magic: BigAdventureReplayMagic,
+    formatVersion: BigAdventureReplayFormatVersion,
+    gameName: GameName,
+    gameVersion: GameVersion,
+    joinKind: rjkAddress,
+    allowChat: false,
+    allowCompressed: true,
+    hashOrder: rhoError
+  )
 
 type
   WebSocketAppState = object
@@ -33,40 +46,6 @@ type
     address: string
     port: int
 
-  ReplayError* = object of CatchableError
-
-  ReplayInput = object
-    time: uint32
-    player: uint8
-    keys: uint8
-
-  ReplayHash = object
-    tick: uint32
-    hash: uint64
-
-  ReplayJoin = object
-    time: uint32
-    player: uint8
-    address: string
-
-  ReplayLeave = object
-    time: uint32
-    player: uint8
-
-  ReplayData = object
-    gameName: string
-    gameVersion: string
-    configJson: string
-    joins: seq[ReplayJoin]
-    leaves: seq[ReplayLeave]
-    inputs: seq[ReplayInput]
-    hashes: seq[ReplayHash]
-
-  ReplayWriter = object
-    enabled: bool
-    file: File
-    lastMasks: seq[uint8]
-
   ReplayPlayer = object
     data: ReplayData
     joinIndex: int
@@ -81,114 +60,15 @@ type
 
 proc tickTime(tick: int): uint32 =
   ## Converts a simulation tick to replay milliseconds.
-  uint32((int64(tick) * 1000'i64) div int64(ReplayFps))
-
-proc writeU8(file: File, value: uint8) =
-  ## Writes one unsigned byte.
-  file.write(char(value))
-
-proc writeU16(file: File, value: uint16) =
-  ## Writes one little endian unsigned 16 bit value.
-  file.writeU8(uint8(value and 0xff'u16))
-  file.writeU8(uint8(value shr 8))
-
-proc writeU32(file: File, value: uint32) =
-  ## Writes one little endian unsigned 32 bit value.
-  for shift in countup(0, 24, 8):
-    file.writeU8(uint8((value shr shift) and 0xff'u32))
-
-proc writeU64(file: File, value: uint64) =
-  ## Writes one little endian unsigned 64 bit value.
-  for shift in countup(0, 56, 8):
-    file.writeU8(uint8((value shr shift) and 0xff'u64))
-
-proc writeReplayString(file: File, value: string) =
-  ## Writes a replay UTF-8 string.
-  if value.len > high(uint16).int:
-    raise newException(ReplayError, "Replay string is too long")
-  file.writeU16(uint16(value.len))
-  file.write(value)
-
-proc readU8(bytes: string, offset: var int): uint8 =
-  ## Reads one unsigned byte from a replay buffer.
-  if offset + 1 > bytes.len:
-    raise newException(
-      ReplayError,
-      "Replay file is truncated at byte " & $offset
-    )
-  result = bytes[offset].uint8
-  inc offset
-
-proc readU16(bytes: string, offset: var int): uint16 =
-  ## Reads one little endian unsigned 16 bit value.
-  if offset + 2 > bytes.len:
-    raise newException(
-      ReplayError,
-      "Replay file is truncated at byte " & $offset
-    )
-  result = uint16(bytes[offset].uint8) or
-    (uint16(bytes[offset + 1].uint8) shl 8)
-  offset += 2
-
-proc readU32(bytes: string, offset: var int): uint32 =
-  ## Reads one little endian unsigned 32 bit value.
-  if offset + 4 > bytes.len:
-    raise newException(
-      ReplayError,
-      "Replay file is truncated at byte " & $offset
-    )
-  for shift in countup(0, 24, 8):
-    result = result or (uint32(bytes[offset].uint8) shl shift)
-    inc offset
-
-proc readU64(bytes: string, offset: var int): uint64 =
-  ## Reads one little endian unsigned 64 bit value.
-  if offset + 8 > bytes.len:
-    raise newException(
-      ReplayError,
-      "Replay file is truncated at byte " & $offset
-    )
-  for shift in countup(0, 56, 8):
-    result = result or (uint64(bytes[offset].uint8) shl shift)
-    inc offset
-
-proc readReplayString(bytes: string, offset: var int): string =
-  ## Reads a replay UTF-8 string.
-  let length = int(bytes.readU16(offset))
-  if offset + length > bytes.len:
-    raise newException(
-      ReplayError,
-      "Replay file is truncated at byte " & $offset
-    )
-  result = bytes[offset ..< offset + length]
-  offset += length
+  replayCodec.tickTime(tick, ReplayFps)
 
 proc openReplayWriter(path: string, configJson: string): ReplayWriter =
   ## Opens a replay file and writes the header.
-  if path.len == 0:
-    return
-  if not open(result.file, path, fmWrite):
-    raise newException(IOError, "Could not open replay file: " & path)
-  result.enabled = true
-  result.lastMasks = @[]
-  result.file.write(ReplayMagic)
-  result.file.writeU16(ReplayFormatVersion)
-  result.file.writeReplayString(GameName)
-  result.file.writeReplayString(GameVersion)
-  result.file.writeU64(uint64(toUnix(getTime())) * 1000'u64)
-  result.file.writeReplayString(configJson)
+  replayCodec.openReplayWriter(path, configJson, BigAdventureReplaySpec)
 
 proc closeReplayWriter(writer: var ReplayWriter) =
   ## Closes a replay writer if it is open.
-  if writer.enabled:
-    writer.file.flushFile()
-    writer.file.close()
-    writer.enabled = false
-
-proc flushReplayWriter(writer: var ReplayWriter) =
-  ## Flushes a replay writer if it is open.
-  if writer.enabled:
-    writer.file.flushFile()
+  replayCodec.closeReplayWriter(writer)
 
 proc writeJoin(
   writer: var ReplayWriter,
@@ -197,106 +77,23 @@ proc writeJoin(
   address: string
 ) =
   ## Writes one player join replay record.
-  if not writer.enabled:
-    return
-  writer.file.writeU8(ReplayJoinRecord)
-  writer.file.writeU32(time)
-  writer.file.writeU8(uint8(player))
-  writer.file.writeReplayString(address)
+  replayCodec.writeJoin(writer, time, player, address)
 
 proc writeLeave(writer: var ReplayWriter, time: uint32, player: int) =
   ## Writes one player leave replay record.
-  if not writer.enabled:
-    return
-  writer.file.writeU8(ReplayLeaveRecord)
-  writer.file.writeU32(time)
-  writer.file.writeU8(uint8(player))
+  replayCodec.writeLeave(writer, time, player)
 
 proc writeInput(writer: var ReplayWriter, input: ReplayInput) =
   ## Writes one player input replay record.
-  if not writer.enabled:
-    return
-  writer.file.writeU8(ReplayInputRecord)
-  writer.file.writeU32(input.time)
-  writer.file.writeU8(input.player)
-  writer.file.writeU8(input.keys)
+  replayCodec.writeInput(writer, input)
 
 proc writeHash(writer: var ReplayWriter, tick: uint32, hash: uint64) =
   ## Writes one tick hash replay record.
-  if not writer.enabled:
-    return
-  writer.file.writeU8(ReplayTickHashRecord)
-  writer.file.writeU32(tick)
-  writer.file.writeU64(hash)
-  writer.flushReplayWriter()
+  replayCodec.writeHash(writer, tick, hash)
 
 proc loadReplay(path: string): ReplayData =
   ## Loads a replay file into memory.
-  let bytes = readFile(path)
-  var offset = 0
-  if bytes.len < ReplayMagic.len:
-    raise newException(ReplayError, "Replay file is truncated")
-  if bytes[0 ..< ReplayMagic.len] != ReplayMagic:
-    raise newException(ReplayError, "Replay magic is not BITWORLD")
-  offset = ReplayMagic.len
-  let formatVersion = bytes.readU16(offset)
-  if formatVersion != ReplayFormatVersion:
-    raise newException(ReplayError, "Unsupported replay format version")
-  result.gameName = bytes.readReplayString(offset)
-  result.gameVersion = bytes.readReplayString(offset)
-  discard bytes.readU64(offset)
-  result.configJson = bytes.readReplayString(offset)
-  if result.gameName != GameName:
-    raise newException(ReplayError, "Replay game name does not match")
-  if result.gameVersion != GameVersion:
-    raise newException(ReplayError, "Replay game version does not match")
-
-  var lastTick = -1
-  var lastInputTime = 0'u32
-  var lastJoinTime = 0'u32
-  var lastLeaveTime = 0'u32
-  while offset < bytes.len:
-    let recordType = bytes.readU8(offset)
-    case recordType
-    of ReplayTickHashRecord:
-      let
-        tick = bytes.readU32(offset)
-        hash = bytes.readU64(offset)
-      if int(tick) <= lastTick:
-        raise newException(ReplayError, "Replay tick hashes move backward")
-      lastTick = int(tick)
-      result.hashes.add(ReplayHash(tick: tick, hash: hash))
-    of ReplayInputRecord:
-      let input = ReplayInput(
-        time: bytes.readU32(offset),
-        player: bytes.readU8(offset),
-        keys: bytes.readU8(offset)
-      )
-      if input.time < lastInputTime:
-        raise newException(ReplayError, "Replay input timestamps move backward")
-      lastInputTime = input.time
-      result.inputs.add(input)
-    of ReplayJoinRecord:
-      let join = ReplayJoin(
-        time: bytes.readU32(offset),
-        player: bytes.readU8(offset),
-        address: bytes.readReplayString(offset)
-      )
-      if join.time < lastJoinTime:
-        raise newException(ReplayError, "Replay join timestamps move backward")
-      lastJoinTime = join.time
-      result.joins.add(join)
-    of ReplayLeaveRecord:
-      let leave = ReplayLeave(
-        time: bytes.readU32(offset),
-        player: bytes.readU8(offset)
-      )
-      if leave.time < lastLeaveTime:
-        raise newException(ReplayError, "Replay leave timestamps move backward")
-      lastLeaveTime = leave.time
-      result.leaves.add(leave)
-    else:
-      raise newException(ReplayError, "Unknown replay record type")
+  replayCodec.loadReplay(path, BigAdventureReplaySpec)
 var appState: WebSocketAppState
 
 proc initAppState() =
