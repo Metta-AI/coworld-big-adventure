@@ -130,8 +130,21 @@ proc validate(config: RunConfig) =
       "Config field profileTicks must be non-negative."
     )
 
+proc limitText(value: int): string =
+  ## Returns a readable text value for a numeric limit.
+  if value > 0:
+    $value
+  else:
+    "infinite"
+
 proc echoStartupPaths(config: RunConfig, runtimeConfig: RuntimeConfig) =
   ## Prints configured replay and score output paths.
+  echo "Big Adventure config: host=", config.address,
+    " port=", config.port,
+    " seed=", config.seed,
+    " tokens=", config.tokens.len,
+    " maxTicks=", config.maxTicks.limitText(),
+    " maxGames=", config.maxGames.limitText()
   if runtimeConfig.replayMode:
     echo "Loading replay from runtime config."
   if runtimeConfig.replayUri.len > 0:
@@ -142,14 +155,6 @@ proc echoStartupPaths(config: RunConfig, runtimeConfig: RuntimeConfig) =
     echo "Using " & $config.tokens.len & " player connection tokens."
   else:
     echo "No player connection tokens configured."
-  if config.maxTicks > 0:
-    echo "Max ticks: " & $config.maxTicks
-  else:
-    echo "Max ticks: infinite"
-  if config.maxGames > 0:
-    echo "Max games: " & $config.maxGames
-  else:
-    echo "Max games: infinite"
   if config.profileTracePath.len > 0:
     echo "Writing profile trace: " & config.profileTracePath
     if config.profileTicks > 0:
