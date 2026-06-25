@@ -131,12 +131,18 @@
             "value": "https://github.com/Metta-AI/bitworld/blob/master/docs/reward_v1.md"
           }
         }
-      ]
+      ],
+      "readme": {
+        "type": "uri",
+        "value": "https://github.com/Metta-AI/coworld-big-adventure/blob/9a926c1e954b0e37156eec37c2d1ac370d204b81/README.md"
+      }
     },
     "runnable": {
       "type": "game",
       "image": "public.ecr.aws/s3j4p9s7/treeform/games/big-adventure:latest",
-      "run": ["/bin/big_adventure"]
+      "run": [
+        "/bin/big_adventure"
+      ]
     }
   },
   "player": [
@@ -146,7 +152,9 @@
       "description": "Coworld player for big_adventure.",
       "type": "player",
       "image": "public.ecr.aws/s3j4p9s7/treeform/players/konrad:latest",
-      "run": ["/bin/konrad"]
+      "run": [
+        "/bin/konrad"
+      ]
     }
   ],
   "reporter": [
@@ -164,7 +172,7 @@
       "name": "BitWorld Score Grader",
       "type": "grader",
       "description": "Generic BitWorld grader that scores episode interest from score spread and game-specific activity signals.",
-      "source_url": "https://github.com/Metta-AI/graders/tree/main/graders/bitworld_score/bitworld_score_grader",
+      "source_url": "https://github.com/Metta-AI/graders/tree/41831abe4b651ae9379243081d219de2083e91c8/graders/bitworld_score/bitworld_score_grader",
       "image": "ghcr.io/metta-ai/graders-bitworld-score:latest"
     }
   ],
