@@ -22,8 +22,6 @@ jobs:
         run: |
           cd ..
           nimby create
-          ln -s "$GITHUB_WORKSPACE" big_adventure
-          nimby install "big_adventure/big_adventure.nimble"
           nimby sync "$GITHUB_WORKSPACE/nimby.lock"
       - run: nim check src/big_adventure.nim
       - run: nim r tests/tests.nim
